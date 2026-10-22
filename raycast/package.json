@@ -1,0 +1,126 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "gameboost",
+  "title": "GameBoost",
+  "description": "Gaming-Optimierer für Windows: Optimierungen, Game Boost, Spiele mit Boost starten und Wartung direkt aus Raycast.",
+  "icon": "icon.png",
+  "author": "sebastian_mendyka",
+  "categories": [
+    "System",
+    "Productivity"
+  ],
+  "license": "MIT",
+  "platforms": [
+    "Windows"
+  ],
+  "commands": [
+    {
+      "name": "optimizations",
+      "title": "Optimierungen",
+      "subtitle": "GameBoost",
+      "description": "Alle Gaming-Optimierungen anzeigen, anwenden und zurücksetzen.",
+      "mode": "view"
+    },
+    {
+      "name": "toggle-boost",
+      "title": "Game Boost umschalten",
+      "subtitle": "GameBoost",
+      "description": "Startet oder beendet den Game Boost (Energieplan, Dienste, Apps, RAM).",
+      "mode": "no-view"
+    },
+    {
+      "name": "games",
+      "title": "Spiel mit Boost starten",
+      "subtitle": "GameBoost",
+      "description": "Spiele-Bibliothek: Spiele mit Game Boost starten, hinzufügen und aus Steam/Epic importieren.",
+      "mode": "view"
+    },
+    {
+      "name": "maintenance",
+      "title": "Wartung",
+      "subtitle": "GameBoost",
+      "description": "Temp-Dateien, Shader-Cache, RAM, DNS, SSD-TRIM und mehr.",
+      "mode": "view"
+    },
+    {
+      "name": "quick-clean",
+      "title": "1-Klick-Wartung",
+      "subtitle": "GameBoost",
+      "description": "Temp-Dateien und Papierkorb leeren, DNS-Cache leeren, Standby-RAM freigeben.",
+      "mode": "no-view"
+    },
+    {
+      "name": "presets",
+      "title": "Optimierungsprofil anwenden",
+      "subtitle": "GameBoost",
+      "description": "Sicher, Gaming-Balance oder Maximale Leistung mit einem Klick.",
+      "mode": "view"
+    },
+    {
+      "name": "status",
+      "title": "System-Status",
+      "subtitle": "GameBoost",
+      "description": "Hardware, Optimierungs-Score und Boost-Status.",
+      "mode": "view"
+    },
+    {
+      "name": "startup",
+      "title": "Autostart verwalten",
+      "subtitle": "GameBoost",
+      "description": "Autostart-Programme, Aufgaben, Store-Apps und Dienste aktivieren, deaktivieren oder löschen.",
+      "mode": "view"
+    },
+    {
+      "name": "context-menu",
+      "title": "Kontextmenü aufräumen",
+      "subtitle": "GameBoost",
+      "description": "Rechtsklick-Einträge ausblenden, klassisches Menü und eigene Einträge.",
+      "mode": "view"
+    },
+    {
+      "name": "network",
+      "title": "DNS & Ping",
+      "subtitle": "GameBoost",
+      "description": "DNS-Server wechseln und vergleichen, Ping und Jitter messen.",
+      "mode": "view"
+    },
+    {
+      "name": "open-app",
+      "title": "GameBoost öffnen",
+      "subtitle": "GameBoost",
+      "description": "Öffnet die GameBoost-Desktop-Oberfläche.",
+      "mode": "no-view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "projectPath",
+      "title": "GameBoost-Ordner",
+      "description": "Optional: Ordner mit bin/gameboost.js. Leer = automatisch (zuletzt verwendeter GameBoost-Ordner).",
+      "type": "directory",
+      "required": false
+    },
+    {
+      "name": "nodePath",
+      "title": "Node.js-Pfad",
+      "description": "Optional: Pfad zu node.exe. Leer = automatisch erkennen.",
+      "type": "textfield",
+      "required": false,
+      "default": ""
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^2.8.2",
+    "@raycast/utils": "^2.3.2"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "lint": "ray lint"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.17",
+    "@types/react": "^19.0.10",
+    "typescript": "^7.0.2"
+  }
+}

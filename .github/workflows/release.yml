@@ -1,0 +1,84 @@
+# Builds and publishes a release when a version tag is pushed:
+#   1. bump "version" in package.json, commit
+#   2. git tag v1.2.3 && git push --tags
+# Produces GameBoost-Setup-<version>.exe (with bundled Node.js runtime) and
+# gameboost-<version>.zip (app files only, used by the built-in updater).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tests
+        run: npm test
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and "v$v" -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME passt nicht zu package.json ($v)"
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Prepare app
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          New-Item -ItemType Directory -Force build\app, dist | Out-Null
+          Copy-Item bin, src, ui -Destination build\app -Recurse
+          Copy-Item package.json, README.md, LICENSE -Destination build\app
+          # App-only package for the updater (no runtime)
+          Compress-Archive -Path build\app\* -DestinationPath "dist\gameboost-$v.zip"
+          # Bundle the Node.js runtime for the setup
+          New-Item -ItemType Directory -Force build\app\runtime | Out-Null
+          Copy-Item (Get-Command node).Source build\app\runtime\node.exe
+          & build\app\runtime\node.exe --version
+
+      - name: Build setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.version.outputs.version }}" installer\gameboost.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-ChildItem dist
+
+      - name: Release notes
+        shell: pwsh
+        run: |
+          $prev = git describe --tags --abbrev=0 "$env:GITHUB_SHA^" 2>$null
+          $range = if ($prev) { "$prev..$env:GITHUB_SHA" } else { $env:GITHUB_SHA }
+          $log = git log $range --pretty=format:"- %s" --no-merges
+          @"
+          ## Installation
+          **[GameBoost-Setup-${{ steps.version.outputs.version }}.exe](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/GameBoost-Setup-${{ steps.version.outputs.version }}.exe)** herunterladen und ausführen – Node.js ist enthalten.
+          Bestehende Installationen aktualisieren sich über das Update-Banner in GameBoost oder mit ``gameboost update install``.
+
+          ## Änderungen
+          $($log -join "`n")
+          "@ | Out-File -Encoding utf8 notes.md
+
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          body_path: notes.md
+          files: |
+            dist/GameBoost-Setup-*.exe
+            dist/gameboost-*.zip

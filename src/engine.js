@@ -15,7 +15,8 @@ foreach ($op in $GB_IN.ops) {
       'reg' {
         $cur = GB-RegGet $op.hive $op.path $op.name
         if ($GB_IN.mode -eq 'detect') {
-          $r.applied = [bool]($cur.exists -and ("$($cur.value)" -eq "$($op.value)"))
+          # A missing value means "Windows default" – applied if that default already is the target.
+          $r.applied = [bool](($cur.exists -and ("$($cur.value)" -eq "$($op.value)")) -or (-not $cur.exists -and $null -ne $op.def -and ("$($op.def)" -eq "$($op.value)")))
           $r.current = $cur
         } elseif ($GB_IN.mode -eq 'apply') {
           $r.backup = $cur

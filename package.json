@@ -1,6 +1,6 @@
 {
   "name": "gameboost",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Windows Gaming-Optimierer (TuneUp-Stil) mit CLI, Desktop-Oberfläche und Raycast-Extension",
   "type": "module",
   "bin": {

@@ -57,7 +57,9 @@ Type: filesandordirs; Name: "{app}\bin"
 ; Start menu (+ desktop) shortcut with "Run as administrator" flag and without console window
 Filename: "{app}\runtime\node.exe"; Parameters: """{app}\bin\gameboost.js"" install --desktop"; Tasks: desktopicon; Flags: runhidden
 Filename: "{app}\runtime\node.exe"; Parameters: """{app}\bin\gameboost.js"" install"; Tasks: not desktopicon; Flags: runhidden
-Filename: "{userprograms}\GameBoost.lnk"; Description: "GameBoost jetzt starten"; Flags: postinstall shellexec nowait skipifsilent
+; Started via Explorer: it shows the UAC prompt itself and stays silent if it is cancelled
+; (ShellExecute from the setup would report error 1223 instead).
+Filename: "{win}\explorer.exe"; Parameters: """{userprograms}\GameBoost.lnk"""; Description: "GameBoost jetzt starten"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 Filename: "{app}\runtime\node.exe"; Parameters: """{app}\bin\gameboost.js"" cleanup"; Flags: runhidden; RunOnceId: "GameBoostCleanup"

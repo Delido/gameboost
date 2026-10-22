@@ -69,9 +69,10 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    if MsgBox('Sollen alle von GameBoost vorgenommenen Systemänderungen auf die ursprünglichen Werte zurückgesetzt werden?' + #13#10#13#10 +
+    // SuppressibleMsgBox: silent uninstalls (/SUPPRESSMSGBOXES) keep the changes (default: No)
+    if SuppressibleMsgBox('Sollen alle von GameBoost vorgenommenen Systemänderungen auf die ursprünglichen Werte zurückgesetzt werden?' + #13#10#13#10 +
               'Empfohlen, wenn du GameBoost nicht erneut installieren willst. (Windows fragt dafür nach Administratorrechten.)',
-              mbConfirmation, MB_YESNO) = IDYES then
+              mbConfirmation, MB_YESNO, IDNO) = IDYES then
       Exec(ExpandConstant('{app}\runtime\node.exe'), '"' + ExpandConstant('{app}\bin\gameboost.js') + '" revert --all', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;

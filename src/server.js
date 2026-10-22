@@ -110,9 +110,9 @@ export async function startServer({ port = 47821, open = true } = {}) {
       return;
     }
     if (path === "/api/restart") {
-      // After an update: start the new version (same rights) once this process has exited.
+      // After an update: hand the port over to a fresh process running the new code.
       send(200, { ok: true });
-      restartServer(port);
+      restartServer(server, port, quitTimer);
       return;
     }
     if (path === "/api/exec") {
@@ -133,7 +133,7 @@ export async function startServer({ port = 47821, open = true } = {}) {
   if (open) openWindow(url);
 
   // Quit when the window has been closed (no ping for 45 s after the first one).
-  setInterval(() => {
+  const quitTimer = setInterval(() => {
     if (lastPing && Date.now() - lastPing > 45000) process.exit(0);
   }, 5000).unref();
 }
@@ -151,11 +151,19 @@ function listenWithRetry(server, port, tries = 20) {
   });
 }
 
-function restartServer(port) {
-  const args = `"${CLI}" ui --port ${port} --no-open`;
-  const cmd = `Start-Sleep -Milliseconds 1500; Start-Process -FilePath ${psq(process.execPath)} -ArgumentList ${psq(args)} -WindowStyle Hidden`;
-  spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", cmd], { detached: true, stdio: "ignore", windowsHide: true }).unref();
-  setTimeout(() => process.exit(0), 300);
+/**
+ * Restart after an update. The new server runs as a child of this process (which only waits for
+ * it): a detached process would be killed together with us if we run inside a job object.
+ */
+function restartServer(server, port, quitTimer) {
+  clearInterval(quitTimer);
+  setTimeout(() => {
+    server.close();
+    server.closeAllConnections();
+    const child = spawn(process.execPath, [CLI, "ui", "--port", String(port), "--no-open"], { stdio: "ignore", windowsHide: true });
+    child.on("exit", (code) => process.exit(code ?? 0));
+    child.on("error", () => process.exit(1));
+  }, 200);
 }
 
 /** Restart the UI server with admin rights (UAC). The page reloads itself afterwards. */

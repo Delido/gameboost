@@ -20,10 +20,13 @@ import { runAutoBoost, autoBoostStatus, enableAutoBoost, disableAutoBoost } from
 import { runBenchmark, listBenchmarks, clearBenchmarks } from "./bench.js";
 import { exportProfile, writeProfile, readProfile, importProfile } from "./profile.js";
 import { runPS } from "./ps.js";
+import { runAgent } from "./session.js";
+import { runTray, startTray, trayStatus, enableTray, disableTray } from "./tray.js";
 import { loadState, updateState, DEFAULT_CONFIG, DATA_DIR } from "./state.js";
 import { runElevated } from "./elevate.js";
 import { installShortcuts, removeShortcuts } from "./install.js";
 import { checkUpdate, installUpdate, currentVersion } from "./update.js";
+import { scanRegistry, cleanRegistry, listRegistryBackups, restoreRegistry, registryNeedsAdmin, restoreNeedsAdmin as registryRestoreNeedsAdmin, REGISTRY_CATEGORIES } from "./registry.js";
 
 const VALUE_FLAGS = new Set(["preset", "category", "port", "out", "game", "watch", "name", "args", "process", "exe", "path", "min", "count", "file", "b64", "publisher", "location"]);
 
@@ -126,6 +129,11 @@ const COMMANDS = {
     admin: () => false,
     run: async (pos) => watch(pos[0]),
   },
+  // Internal: session agent of a boost session (see session.js)
+  agent: {
+    admin: () => false,
+    run: async (pos) => runAgent(pos[0]),
+  },
   games: {
     admin: (pos, flags) => {
       const sub = pos[0] || "list";
@@ -179,6 +187,17 @@ const COMMANDS = {
       if (sub === "deleted") return listDeletedStartup();
       if (sub === "restore") return restoreStartup(pos[1]);
       throw new Error(`Unbekannter Unterbefehl: startup ${sub}`);
+    },
+  },
+  registry: {
+    admin: (pos) => (pos[0] === "clean" && registryNeedsAdmin(pos.slice(1))) || (pos[0] === "restore" && registryRestoreNeedsAdmin(pos[1])),
+    run: async (pos) => {
+      const sub = pos[0] || "scan";
+      if (sub === "scan") return { categories: REGISTRY_CATEGORIES, items: await scanRegistry() };
+      if (sub === "clean") return cleanRegistry(pos.slice(1));
+      if (sub === "deleted") return listRegistryBackups();
+      if (sub === "restore") return restoreRegistry(pos[1]);
+      throw new Error(`Unbekannter Unterbefehl: registry ${sub}`);
     },
   },
   ctx: {
@@ -257,6 +276,18 @@ const COMMANDS = {
       if (sub === "disable") return disableAutoBoost();
       if (sub === "run") return runAutoBoost(execute);
       throw new Error(`Unbekannter Unterbefehl: autoboost ${sub}`);
+    },
+  },
+  tray: {
+    admin: (pos) => ["enable", "disable"].includes(pos[0]),
+    run: async (pos) => {
+      const sub = pos[0] || "start";
+      if (sub === "start") return startTray();
+      if (sub === "run") return runTray();
+      if (sub === "status") return trayStatus();
+      if (sub === "enable") return enableTray();
+      if (sub === "disable") return disableTray();
+      throw new Error(`Unbekannter Unterbefehl: tray ${sub}`);
     },
   },
   bench: {
@@ -344,6 +375,13 @@ const COMMANDS = {
     admin: () => false,
     run: async () => loadState().history,
   },
+  sessions: {
+    admin: () => false,
+    run: async (pos) => {
+      if (pos[0] === "clear") return updateState((s) => (s.sessions = []));
+      return loadState().sessions;
+    },
+  },
   install: {
     admin: () => false,
     run: async (pos, flags) => installShortcuts({ desktop: !!flags.desktop }),
@@ -370,6 +408,7 @@ const COMMANDS = {
       const errors = [];
       if (tasks[TASKS.autoboost]) await execute(["autoboost", "disable"]).catch((e) => errors.push(e.message));
       if (tasks[TASKS.maintenance]) await execute(["schedule", "set", "off"]).catch((e) => errors.push(e.message));
+      if (tasks[TASKS.tray]) await execute(["tray", "disable"]).catch((e) => errors.push(e.message));
       return { removed: r?.removed || [], errors };
     },
   },

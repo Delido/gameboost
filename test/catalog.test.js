@@ -79,3 +79,16 @@ test("maintenance actions are well-formed", () => {
     assert.match(a.script, /return/, `${a.id}: muss eine Meldung zurückgeben`);
   }
 });
+
+test("every catalog entry has an English text", async () => {
+  const en = (await import("../src/i18n/en.js")).default;
+  const missing = [
+    ...TWEAKS.filter((t) => !en.tweaks[t.id]?.title || !en.tweaks[t.id]?.description).map((t) => `tweak ${t.id}`),
+    ...CATEGORIES.filter((c) => !en.categories[c.id]).map((c) => `category ${c.id}`),
+    ...PRESETS.filter((p) => !en.presets[p.id]).map((p) => `preset ${p.id}`),
+    ...ACTIONS.filter((a) => !en.actions[a.id]).map((a) => `action ${a.id}`),
+    ...GROUPS.filter((g) => !en.actionGroups[g.id]).map((g) => `group ${g.id}`),
+    ...Object.keys(REBOOT_LABEL).filter((k) => !en.rebootLabels[k]).map((k) => `reboot ${k}`),
+  ];
+  assert.deepEqual(missing, [], "src/i18n/en.js fehlt");
+});

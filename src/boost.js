@@ -1,15 +1,22 @@
 // Game Booster session: temporarily switches to the GameBoost power plan, stops background
-// services, closes distracting apps and frees RAM. `stop` restores everything.
+// services, closes distracting apps, frees RAM, mutes notifications and moves background apps to
+// the E-cores. A session agent (session.js) holds the timer resolution, pins the game to the
+// P-cores and records frame times. `stop` restores everything and returns an FPS report.
 import { spawn, execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
 import { runPS } from "./ps.js";
 import { STANDBY_PS } from "./actions.js";
 import { ULTIMATE_PLAN_PS } from "./catalog.js";
+import { CPU_PS, ensurePresentMon, startAgent, stopAgent } from "./session.js";
 import { loadState, updateState, logHistory } from "./state.js";
+import { isAdmin } from "./system.js";
 
-export const START_PS = STANDBY_PS + ULTIMATE_PLAN_PS + String.raw`
+const PUSH = String.raw`Software\Microsoft\Windows\CurrentVersion\PushNotifications`;
+
+export const START_PS = STANDBY_PS + ULTIMATE_PLAN_PS + CPU_PS + String.raw`
 $cfg = $GB_IN.config
-$res = @{ stoppedServices = @(); killed = @(); prevScheme = $null; ramFreed = 0; errors = @() }
+$res = @{ stoppedServices = @(); killed = @(); prevScheme = $null; ramFreed = 0; errors = @(); toast = $null; affinity = @(); hybrid = $false }
 if ($cfg.powerPlan) {
   $res.prevScheme = GB-ActiveScheme
   try { $g = GB-EnsurePlan; powercfg /setactive $g | Out-Null } catch { $res.errors += $_.Exception.Message }
@@ -32,6 +39,22 @@ foreach ($p in @($cfg.processes)) {
 }
 if ($cfg.clearStandby) { try { $res.ramFreed = GB-PurgeStandby } catch { $res.errors += $_.Exception.Message } }
 if ($cfg.flushDns) { ipconfig /flushdns | Out-Null }
+if ($cfg.dnd) {
+  # Notifications master switch (Settings > System > Notifications), restored afterwards
+  $res.toast = GB-RegGet 'HKCU' '${PUSH}' 'ToastEnabled'
+  GB-RegSet 'HKCU' '${PUSH}' 'ToastEnabled' 'DWord' 0
+}
+if ($cfg.pCores) {
+  $masks = [GBCpu]::Masks()
+  if ($masks[1] -ne 0) {
+    $res.hybrid = $true
+    foreach ($p in @($cfg.ecoreProcesses)) {
+      foreach ($proc in @(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($p)) -ErrorAction SilentlyContinue)) {
+        try { $orig = [int64]$proc.ProcessorAffinity; $proc.ProcessorAffinity = [IntPtr]$masks[1]; $res.affinity += @{ pid = $proc.Id; name = $proc.ProcessName; mask = $orig } } catch {}
+      }
+    }
+  }
+}
 GB-Out $res
 `;
 
@@ -52,6 +75,13 @@ if ($GB_IN.restartApps) {
     $res.restartedApps += $k.name
   }
 }
+if ($s.toast) {
+  if ($s.toast.exists) { GB-RegSet 'HKCU' '${PUSH}' 'ToastEnabled' $s.toast.kind $s.toast.value } else { GB-RegDel 'HKCU' '${PUSH}' 'ToastEnabled' }
+}
+foreach ($a in @($s.affinity)) {
+  $proc = Get-Process -Id $a.pid -ErrorAction SilentlyContinue
+  if ($proc -and $proc.ProcessName -eq $a.name) { try { $proc.ProcessorAffinity = [IntPtr][int64]$a.mask } catch {} }
+}
 GB-Out $res
 `;
 
@@ -62,8 +92,18 @@ export function sessionStatus() {
 export async function startBoost({ gameId = null, watchProcess = null, auto = false } = {}) {
   const state = loadState();
   if (state.session) return { alreadyActive: true, session: state.session };
-  const r = await runPS(START_PS, { config: state.config.boost });
+  const cfg = state.config.boost;
+  const r = await runPS(START_PS, { config: cfg });
+  const errors = r.errors || [];
+  const id = randomBytes(5).toString("hex");
+  // FPS capture needs the game's exe name and administrator rights (ETW).
+  let presentMon = null;
+  if (cfg.fpsCapture && watchProcess && (await isAdmin())) {
+    try { presentMon = await ensurePresentMon(); } catch (e) { errors.push(`FPS-Messung nicht verfügbar: ${e.message}`); }
+  }
+  const agent = startAgent(id, { process: watchProcess, timer: !!cfg.timerResolution, pCores: !!cfg.pCores && r.hybrid, presentMon });
   const session = {
+    id,
     startedAt: new Date().toISOString(),
     prevScheme: r.prevScheme,
     stoppedServices: r.stoppedServices || [],
@@ -72,24 +112,37 @@ export async function startBoost({ gameId = null, watchProcess = null, auto = fa
     gameId,
     watchProcess,
     auto,
+    toast: r.toast,
+    affinity: r.affinity || [],
+    agent,
   };
   updateState((s) => {
     s.session = session;
     logHistory(s, { action: "boost-start", gameId, game: s.games.find((g) => g.id === gameId)?.name, auto });
   });
-  return { alreadyActive: false, session, errors: r.errors || [] };
+  return { alreadyActive: false, session, errors };
 }
 
 export async function stopBoost() {
   const state = loadState();
   if (!state.session) return { wasActive: false };
-  const r = await runPS(STOP_PS, { session: state.session, restartApps: state.config.boost.restartProcesses });
-  const duration = Math.round((Date.now() - new Date(state.session.startedAt).getTime()) / 60000);
+  const session = state.session;
+  // Mark the session as ended first so that watchers/agents stop, then restore the system.
+  updateState((s) => { s.session = null; });
+  const { report } = session.agent && session.id ? await stopAgent(session.id, session.watchProcess) : { report: null };
+  const r = await runPS(STOP_PS, { session, restartApps: state.config.boost.restartProcesses });
+  const duration = Math.round((Date.now() - new Date(session.startedAt).getTime()) / 60000);
+  const game = state.games.find((g) => g.id === session.gameId);
+  const entry = report && {
+    id: session.id, at: new Date().toISOString(), startedAt: session.startedAt, minutes: duration,
+    game: game?.name || session.watchProcess, gameId: session.gameId, process: session.watchProcess,
+    pCores: !!session.agent?.pCores, timer: !!session.agent?.timer, ...report,
+  };
   updateState((s) => {
-    s.session = null;
-    logHistory(s, { action: "boost-stop", minutes: duration });
+    if (entry) s.sessions = [entry, ...s.sessions].slice(0, 100);
+    logHistory(s, { action: "boost-stop", minutes: duration, game: entry?.game, fps: entry ? `Ø ${entry.avgFps} FPS · 1 % ${entry.low1}` : undefined });
   });
-  return { wasActive: true, minutes: duration, ...r };
+  return { wasActive: true, minutes: duration, report: entry || null, ...r };
 }
 
 /** Spawn a detached watcher that ends the boost session when the game process exits. */

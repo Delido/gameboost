@@ -8,13 +8,26 @@ const STATE_FILE = join(DATA_DIR, "state.json");
 export const DEFAULT_CONFIG = {
   boost: {
     // Services stopped temporarily during a boost session (restarted afterwards).
-    services: ["SysMain", "WSearch", "Spooler", "DiagTrack", "MapsBroker", "WerSvc", "wuauserv", "BITS", "DoSvc"],
+    services: ["SysMain", "WSearch", "Spooler", "DiagTrack", "MapsBroker", "WerSvc", "wuauserv", "UsoSvc", "BITS", "DoSvc"],
     // Processes closed during a boost session (restarted afterwards, if they were running).
     processes: ["OneDrive.exe", "PhoneExperienceHost.exe", "Widgets.exe", "WidgetService.exe", "Teams.exe", "ms-teams.exe", "YourPhone.exe", "GoogleDriveFS.exe", "Dropbox.exe", "AdobeCollabSync.exe"],
     powerPlan: true,
     clearStandby: true,
     flushDns: true,
     restartProcesses: true,
+    // Notifications off while playing (restored afterwards)
+    dnd: true,
+    // Hybrid CPUs (Intel 12th gen+): game on P-cores, these background apps on E-cores
+    pCores: true,
+    ecoreProcesses: ["Discord.exe", "Spotify.exe", "msedge.exe", "chrome.exe", "firefox.exe", "brave.exe", "opera.exe", "steamwebhelper.exe", "EpicWebHelper.exe", "EADesktop.exe", "Battle.net.exe", "Teams.exe", "ms-teams.exe"],
+    // 0.5 ms timer resolution while the boost is active
+    timerResolution: true,
+    // Record frame times with PresentMon (FPS report after the session)
+    fpsCapture: true,
+  },
+  // UI language: auto (Windows display language) | de | en
+  ui: {
+    lang: "auto",
   },
   // Background watcher that starts the boost as soon as a library game runs (also via Steam/Epic).
   autoBoost: {
@@ -26,6 +39,7 @@ function defaults() {
   return {
     version: 1, backups: {}, session: null, games: [], config: structuredClone(DEFAULT_CONFIG), history: [],
     startupDeleted: [], startupServices: [], dnsBackup: null, benchmarks: [], update: null,
+    registryDeleted: [], sessions: [],
   };
 }
 

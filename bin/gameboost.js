@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // GameBoost CLI. Every command supports --json (machine-readable output, used by Raycast).
 import "../src/env.js";
-import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execute, parseArgs, hasCommand } from "../src/commands.js";
@@ -12,13 +12,18 @@ const { pos, flags } = parseArgs(argv);
 if (flags.out) process.env.GB_ELEVATED = "1";
 
 // Remember where GameBoost lives so the Raycast extension finds it even after the folder moved.
+// An installed copy (with bundled runtime) always wins over a development checkout.
 const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/[\\/]$/, "");
 try {
   const dir = join(process.env.LOCALAPPDATA || "", "GameBoost");
   const file = join(dir, "location.json");
+  const installed = (root) => existsSync(join(root, "runtime", "node.exe")) && existsSync(join(root, "bin", "gameboost.js"));
   let known = null;
   try { known = JSON.parse(readFileSync(file, "utf8")).root; } catch {}
-  if (known !== ROOT) { mkdirSync(dir, { recursive: true }); writeFileSync(file, JSON.stringify({ root: ROOT }), "utf8"); }
+  if (known !== ROOT && (installed(ROOT) || !known || !installed(known))) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, JSON.stringify({ root: ROOT }), "utf8");
+  }
 } catch {}
 
 const c = {
@@ -46,6 +51,7 @@ ${c.bold("Wartung & Reparatur")}
   gameboost actions                    Wartungsaktionen anzeigen
   gameboost run <aktion>               z. B. quick-clean, clear-standby, trim-ssd, sfc, dism-restore
   gameboost schedule get | set daily|weekly|off   Automatische Wartung
+  gameboost registry scan | clean <id...> | deleted | restore <backupId>   Kaputte Registry-Einträge
 
 ${c.bold("Game Booster")}
   gameboost boost start|stop|toggle|status
@@ -56,6 +62,8 @@ ${c.bold("Game Booster")}
   gameboost games remove <id|Name>
   gameboost play <exe|lnk>             Beliebiges Programm mit Boost starten
   gameboost autoboost status|enable|disable   Boost automatisch, sobald ein Bibliotheksspiel läuft
+  gameboost sessions [clear]           FPS-Berichte der letzten Spielsitzungen
+  gameboost tray [status|enable|disable]   Tray-Symbol starten / mit Windows starten
 
 ${c.bold("Autostart & Kontextmenü")}
   gameboost startup list | enable <id> | disable <id> | delete <id>
@@ -81,6 +89,12 @@ ${c.bold("Einstellungen")}
 
 Optionen: --json  Ausgabe als JSON
 `;
+
+function printSession(r, prev = null) {
+  const d = (k) => (prev && prev[k] ? ` ${c.dim(`(${r[k] >= prev[k] ? "+" : ""}${Math.round(((r[k] - prev[k]) / prev[k]) * 100)} %)`)}` : "");
+  console.log(`${c.bold(r.game)} ${c.dim(`${new Date(r.at).toLocaleString()} · ${r.minutes} min`)}`);
+  console.log(`  Ø ${c.bold(r.avgFps + " FPS")}${d("avgFps")} · 1 % Low ${r.low1}${d("low1")} · 0,1 % Low ${r.low01} · Ruckler ${r.stutters}${r.gpuBoundPct != null ? ` · GPU-limitiert ${r.gpuBoundPct} %` : ""}`);
+}
 
 const CHECK_ICON = { ok: c.green("✔"), info: c.cyan("ℹ"), warn: c.yellow("⚠"), bad: c.red("✖") };
 const STATUS_ICON = { applied: c.green("●"), partial: c.yellow("◐"), default: c.dim("○"), unavailable: c.dim("–"), unknown: c.dim("?") };
@@ -136,7 +150,10 @@ function printHuman(cmd, sub, data) {
         console.log(c.green(data.started ? "🚀 Game Boost gestartet" : "Game Boost war bereits aktiv"));
         console.log(c.dim(`  ${s.stoppedServices.length} Dienste pausiert, ${s.killed.length} Apps beendet, ${s.ramFreed} MB RAM freigegeben`));
         for (const e of data.errors || []) console.log(c.yellow("  ⚠ " + e));
-      } else console.log(data.wasActive ? `Game Boost beendet nach ${data.minutes} min – System wiederhergestellt.` : "Game Boost war nicht aktiv.");
+      } else {
+        console.log(data.wasActive ? `Game Boost beendet nach ${data.minutes} min – System wiederhergestellt.` : "Game Boost war nicht aktiv.");
+        if (data.report) printSession(data.report);
+      }
       break;
     case "games":
       if (sub === "list" || !sub) {
@@ -194,6 +211,20 @@ function printHuman(cmd, sub, data) {
     }
     case "autoboost":
       console.log(`Auto-Boost: ${data.enabled ? c.green("aktiv") : c.dim("aus")}${data.enabled ? c.dim(data.running ? " (Wächter läuft)" : " (Wächter startet bei der nächsten Anmeldung)") : ""}`);
+      break;
+    case "registry":
+      if (sub === "scan" || !sub) {
+        if (!data.items.length) console.log(c.green("✔ Keine kaputten Registry-Einträge gefunden."));
+        for (const i of data.items) console.log(`${c.yellow("●")} ${c.bold(i.name)} ${c.dim(`[${data.categories[i.category]}]`)}\n  ${i.detail}${i.path ? c.dim("  " + i.path) : ""}\n  ${c.dim(i.id)}`);
+      } else if (sub === "clean") for (const r of data) console.log(`${r.ok ? c.green("✔") : c.red("✖")} ${r.name || r.id}${r.error ? c.red("  " + r.error) : ""}`);
+      else if (sub === "deleted") {
+        if (!data.length) console.log(c.dim("Keine gesicherten Einträge."));
+        for (const e of data) console.log(`${c.bold(e.name)} ${c.dim(`${e.key} · ${new Date(e.deletedAt).toLocaleString()} · ${e.backupId}`)}`);
+      } else console.log(`Wiederhergestellt: ${data.name}${data.service ? c.dim(" (Dienst ist nach einem Neustart wieder registriert)") : ""}`);
+      break;
+    case "sessions":
+      if (!data.length) console.log(c.dim("Noch keine Messungen. Spiele über GameBoost (oder mit Auto-Boost) starten – nach dem Spielen erscheint hier der FPS-Bericht."));
+      data.forEach((r, i) => printSession(r, data.slice(i + 1).find((x) => x.gameId === r.gameId && x.process === r.process)));
       break;
     case "update":
       if (sub === "install") console.log(data.updated ? c.green(`✔ Aktualisiert: ${data.from} → ${data.to}`) : "Bereits aktuell.");

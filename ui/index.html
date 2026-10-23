@@ -6,7 +6,7 @@
   <title>GameBoost</title>
   <link rel="icon" href="icon.png">
   <link rel="stylesheet" href="style.css">
-  <script>window.GB_TOKEN = "__GB_TOKEN__"; window.GB_ADMIN = __GB_ADMIN__;</script>
+  <script>window.GB_TOKEN = "__GB_TOKEN__"; window.GB_ADMIN = __GB_ADMIN__; window.GB_LANG = "__GB_LANG__";</script>
 </head>
 <body>
   <aside class="sidebar">
@@ -29,6 +29,7 @@
       <div id="boost-pill" class="pill off">Game Boost aus</div>
       <div id="admin-state" class="muted small"></div>
       <div id="app-version" class="muted small"></div>
+      <button class="btn small ghost" id="lang-toggle" data-no-i18n></button>
     </div>
   </aside>
 
@@ -143,6 +144,14 @@
         <label class="switch"><input type="checkbox" id="autoboost-toggle"><span></span></label>
       </div>
 
+      <div class="card autoboost" id="tray-card">
+        <div>
+          <h3>🖥️ Tray-Symbol</h3>
+          <p class="muted small" id="tray-detail">Symbol im Infobereich: Boost umschalten, Spiele starten, 1-Klick-Wartung – und nach jedem Spiel eine Benachrichtigung mit dem FPS-Ergebnis. Startet mit Windows (mit Adminrechten, ohne UAC-Abfragen).</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="tray-toggle"><span></span></label>
+      </div>
+
       <div class="section-head">
         <h2>Spiele-Bibliothek</h2>
         <div class="row">
@@ -168,6 +177,25 @@
         </div>
       </div>
       <div class="card options" id="cfg-options"></div>
+      <div class="grid two spaced">
+        <div class="card">
+          <h3>Auf E-Kerne verschieben</h3>
+          <p class="muted small" id="ecore-hint">Diese Programme laufen während des Boosts nur auf den Effizienzkernen, damit das Spiel die P-Kerne für sich hat.</p>
+          <div class="chips" id="cfg-ecore"></div>
+          <div class="row"><input id="cfg-ecore-input" placeholder="z. B. obs64.exe"><button class="btn small" id="cfg-ecore-add">Hinzufügen</button></div>
+        </div>
+        <div class="card" id="timer-card">
+          <h3>Timer-Auflösung</h3>
+          <p class="muted small" id="timer-hint"></p>
+        </div>
+      </div>
+
+      <div class="section-head">
+        <h2>Letzte Spielsitzungen</h2>
+        <button class="btn small ghost" id="sessions-clear">Verlauf leeren</button>
+      </div>
+      <p class="muted small">Beim Spielen über GameBoost (oder mit Auto-Boost) misst GameBoost mit PresentMon jedes Bild – danach siehst du Ø-FPS, 1 %-Lows, Ruckler und den Vergleich zur letzten Sitzung desselben Spiels.</p>
+      <div class="card list" id="sessions"></div>
     </section>
 
     <!-- Wartung -->
@@ -185,6 +213,14 @@
         </select>
       </div>
       <div id="actions"></div>
+
+      <div class="section-head">
+        <h2>Registry</h2>
+        <button class="btn small" id="registry-scan">🔍 Nach kaputten Einträgen suchen</button>
+      </div>
+      <p class="muted small">Findet nur Einträge, die nachweislich auf gelöschte Dateien zeigen: Kontextmenü-Erweiterungen (langsamer Rechtsklick), Einträge in „Installierte Apps“, Dienste, Programm-Kurznamen und „Öffnen mit“. Jeder Eintrag wird vor dem Löschen als .reg-Datei gesichert. Ein klassisches „Registry entrümpeln“ gibt es bewusst nicht – es bringt keine Leistung und birgt Risiken.</p>
+      <div id="registry-result"></div>
+      <div id="registry-deleted"></div>
     </section>
 
     <!-- Autostart -->
@@ -294,7 +330,10 @@
 
   <div id="modal" class="modal hidden"><div class="modal-box" id="modal-box"></div></div>
   <div id="toasts"></div>
+  <div id="offline" class="busy offline hidden"><div class="spinner"></div><strong>Verbindung zu GameBoost verloren</strong><span class="muted">GameBoost wurde beendet oder neu gestartet. Starte GameBoost über das Startmenü – dieses Fenster verbindet sich dann automatisch wieder.</span></div>
   <div id="busy" class="busy hidden"><div class="spinner"></div><span id="busy-text">Bitte warten …</span></div>
+  <script src="i18n-en.js"></script>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

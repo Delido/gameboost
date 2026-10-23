@@ -9,8 +9,31 @@ const S = { catalog: null, tweaks: [], info: null, config: null, games: [], sess
 
 // ───────────── API ─────────────
 async function post(path, body = {}) {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-GB-Token": window.GB_TOKEN }, body: JSON.stringify(body) });
+  let r;
+  try {
+    r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-GB-Token": window.GB_TOKEN }, body: JSON.stringify(body) });
+  } catch {
+    connectionLost();
+    throw Object.assign(new Error("Keine Verbindung zu GameBoost"), { offline: true });
+  }
+  // A restarted server has a new token: reload the page to get it.
+  if (r.status === 403) { connectionLost(); throw Object.assign(new Error("GameBoost wurde neu gestartet"), { offline: true }); }
   return r.json();
+}
+
+// The local server is gone (window left open after GameBoost ended, or a restart): show one
+// notice instead of an error per request and reload as soon as GameBoost is reachable again.
+let offlineTimer = null;
+function connectionLost() {
+  if (offlineTimer || S.reconnecting) return;
+  hideBusy();
+  $("#offline").classList.remove("hidden");
+  offlineTimer = setInterval(async () => {
+    try {
+      const r = await fetch("/api/health", { cache: "no-store" });
+      if (r.ok && (await r.json()).app === "gameboost") location.reload();
+    } catch {}
+  }, 2000);
 }
 async function api(argv, { busy = null } = {}) {
   if (busy) showBusy(busy);
@@ -30,7 +53,7 @@ function toast(msg, type = "ok", ms = 4500) {
   $("#toasts").append(t);
   setTimeout(() => t.remove(), ms);
 }
-const fail = (e) => toast(e.message || String(e), "error", 7000);
+const fail = (e) => { if (!e?.offline) toast(e.message || String(e), "error", 7000); };
 function showBusy(text) { $("#busy-text").textContent = text; $("#busy").classList.remove("hidden"); }
 function hideBusy() { $("#busy").classList.add("hidden"); }
 
@@ -60,9 +83,9 @@ const PAGE_LOADERS = {
   contextmenu: () => { renderCtxTweaks(); if (!S.loaded.ctx) loadCtx(); },
   apps: () => !S.loaded.programs && loadPrograms(),
   network: () => !S.loaded.dns && loadDns(),
-  maintenance: () => !S.loaded.schedule && loadSchedule(),
+  maintenance: () => { if (!S.loaded.schedule) { loadSchedule(); loadRegistryDeleted(); } },
   history: () => loadHistory(),
-  booster: () => renderBooster(),
+  booster: () => { renderBooster(); loadTray(); },
 };
 function go(page) {
   $$("nav button").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
@@ -134,7 +157,7 @@ function renderSpecs() {
   $("#sys-subtitle").textContent = `${i.computer} · ${i.os.name} (Build ${i.os.build}) · läuft seit ${i.os.uptimeHours} h`;
   const ramUsed = i.ram.totalGB - i.ram.freeGB;
   const cards = [
-    { icon: "🧮", label: "Prozessor", value: i.cpu.name, sub: `${i.cpu.cores} Kerne / ${i.cpu.threads} Threads · ${i.cpu.load ?? 0} % Last`, bar: i.cpu.load },
+    { icon: "🧮", label: "Prozessor", value: i.cpu.name, sub: `${i.cpu.cores} Kerne / ${i.cpu.threads} Threads${i.cpu.eThreads ? ` (${i.cpu.pThreads} P + ${i.cpu.eThreads} E)` : ""} · ${i.cpu.load ?? 0} % Last`, bar: i.cpu.load },
     ...i.gpus.map((g) => ({ icon: "🎮", label: "Grafikkarte", value: g.name, sub: `${g.vramGB} GB VRAM · Treiber ${g.driver} · ${g.resolution} @ ${g.refresh} Hz` })),
     { icon: "🧠", label: "Arbeitsspeicher", value: `${i.ram.totalGB} GB`, sub: `${ramUsed.toFixed(1)} GB belegt · ${i.ram.freeGB} GB frei`, bar: (ramUsed / i.ram.totalGB) * 100 },
     { icon: "⚡", label: "Energieplan", value: i.powerPlan.name || "–", sub: i.isLaptop ? "Laptop erkannt – Akku-Einstellungen bleiben unverändert" : "Desktop-PC" },
@@ -432,11 +455,27 @@ async function toggleBoost() {
     } else {
       S.session = null;
       toast(r.wasActive ? `Game Boost beendet (${r.minutes} min). System wiederhergestellt.` : "Game Boost war nicht aktiv.", "info");
+      if (r.report) toast(`🎮 ${r.report.game}: Ø ${r.report.avgFps} FPS · 1 % Low ${r.report.low1}`, "ok", 10000);
     }
   } catch (e) { fail(e); }
   renderBoostState();
 }
 $("#boost-toggle").onclick = toggleBoost;
+
+async function loadTray() {
+  try {
+    const t = await api(["tray", "status"]);
+    $("#tray-toggle").checked = t.autostart;
+    $("#tray-card").classList.toggle("on", t.autostart);
+  } catch {}
+}
+$("#tray-toggle").onchange = async (e) => {
+  try {
+    const t = await api(["tray", e.target.checked ? "enable" : "disable"], { busy: e.target.checked ? "Tray-Symbol wird eingerichtet …" : "Tray-Symbol wird entfernt …" });
+    toast(t.autostart ? "Tray-Symbol aktiv – startet ab jetzt mit Windows." : "Tray-Symbol deaktiviert.", t.autostart ? "ok" : "info");
+  } catch (err) { fail(err); }
+  loadTray();
+};
 
 function renderAutoBoost() {
   const a = S.autoboost;
@@ -489,10 +528,48 @@ function renderBooster() {
     const key = x.dataset.chip;
     saveConfig(key, b[key].filter((_, i) => i !== Number(x.dataset.i)));
   }));
-  const opts = [["powerPlan", "GameBoost-Energieplan aktivieren"], ["clearStandby", "Standby-RAM leeren"], ["flushDns", "DNS-Cache leeren"], ["restartProcesses", "Beendete Apps danach neu starten"]];
+  const hybrid = S.info?.cpu?.eThreads > 0;
+  const opts = [
+    ["powerPlan", "GameBoost-Energieplan aktivieren"], ["clearStandby", "Standby-RAM leeren"], ["flushDns", "DNS-Cache leeren"], ["restartProcesses", "Beendete Apps danach neu starten"],
+    ["dnd", "Benachrichtigungen aus"], ["timerResolution", "Timer-Auflösung 0,5 ms"], ["fpsCapture", "FPS messen (PresentMon)"],
+    ...(hybrid ? [["pCores", "Spiel auf P-Kerne, Hintergrund-Apps auf E-Kerne"]] : []),
+  ];
   $("#cfg-options").innerHTML = opts.map(([k, l]) => `<label><span class="switch"><input type="checkbox" data-opt="${k}" ${b[k] ? "checked" : ""}><span></span></span>${l}</label>`).join("");
   $$("[data-opt]").forEach((x) => (x.onchange = () => saveConfig(x.dataset.opt, x.checked)));
+  $("#cfg-ecore").innerHTML = chips(b.ecoreProcesses, "ecoreProcesses");
+  $$('[data-chip="ecoreProcesses"]').forEach((x) => (x.onclick = () => saveConfig("ecoreProcesses", b.ecoreProcesses.filter((_, i) => i !== Number(x.dataset.i)))));
+  $("#cfg-ecore").closest(".card").classList.toggle("hidden", !hybrid);
+  if (hybrid) $("#ecore-hint").textContent = `Dein Prozessor hat ${S.info.cpu.pThreads} P- und ${S.info.cpu.eThreads} E-Threads. Diese Programme laufen während des Boosts nur auf den E-Kernen, das Spiel nur auf den P-Kernen.`;
+  const globalTimer = S.tweaks.find((t) => t.id === "global-timer-resolution")?.status === "applied";
+  $("#timer-hint").innerHTML = globalTimer
+    ? "✔ Während des Boosts gilt eine Timer-Auflösung von 0,5 ms für alle Programme – gleichmäßigere Frametimes und genaueres Frame-Limiting."
+    : `Unter Windows 11 wirkt eine hohe Timer-Auflösung nur systemweit, wenn die Optimierung <strong>„Globale Timer-Auflösung erlauben“</strong> aktiv ist (Neustart nötig). <button class="btn small" data-go="tweaks">Zu den Optimierungen</button>`;
+  renderSessions();
 }
+
+async function renderSessions() {
+  try {
+    const list = await api(["sessions"]);
+    const pct = (a, b) => (b ? Math.round(((a - b) / b) * 100) : null);
+    const delta = (v) => (v == null || Math.abs(v) < 2 ? "" : ` <span class="${v > 0 ? "good" : "bad"}">${v > 0 ? "+" : ""}${v} %</span>`);
+    $("#sessions").innerHTML = list.length ? list.slice(0, 15).map((r, i) => {
+      const prev = list.slice(i + 1).find((x) => x.gameId === r.gameId && x.process === r.process);
+      return `<div class="list-item"><div><strong>${esc(r.game)}</strong> <span class="muted small">${new Date(r.at).toLocaleString()} · ${r.minutes} min</span>
+        <div class="cmd">${r.presentMode ? esc(r.presentMode) : ""}${r.pCores ? " · P-Kerne" : ""}${r.timer ? " · Timer 0,5 ms" : ""}${r.gpuBoundPct != null ? ` · GPU-limitiert ${r.gpuBoundPct} %` : ""}</div></div>
+        <div class="fps-stats">
+          <div><span>Ø FPS</span><strong>${r.avgFps}</strong>${delta(prev && pct(r.avgFps, prev.avgFps))}</div>
+          <div><span>1 % Low</span><strong>${r.low1}</strong>${delta(prev && pct(r.low1, prev.low1))}</div>
+          <div><span>0,1 % Low</span><strong>${r.low01}</strong></div>
+          <div><span>Ruckler</span><strong>${r.stutters}</strong></div>
+        </div></div>`;
+    }).join("") : `<div class="empty">Noch keine Messungen. Starte ein Spiel über „▶ Spielen“ oder aktiviere Auto-Boost.</div>`;
+  } catch (e) { fail(e); }
+}
+$("#sessions-clear").onclick = async () => {
+  if (!(await confirmDialog("Verlauf leeren", "Alle gespeicherten FPS-Berichte löschen?", "Leeren", true))) return;
+  await api(["sessions", "clear"]).catch(fail);
+  renderSessions();
+};
 
 async function saveConfig(key, value) {
   try {
@@ -508,6 +585,8 @@ const addChip = (key, input) => {
 };
 $("#cfg-service-add").onclick = () => addChip("services", "#cfg-service-input");
 $("#cfg-process-add").onclick = () => addChip("processes", "#cfg-process-input");
+$("#cfg-ecore-add").onclick = () => addChip("ecoreProcesses", "#cfg-ecore-input");
+$("#cfg-ecore-input").onkeydown = (e) => e.key === "Enter" && addChip("ecoreProcesses", "#cfg-ecore-input");
 $("#cfg-service-input").onkeydown = (e) => e.key === "Enter" && addChip("services", "#cfg-service-input");
 $("#cfg-process-input").onkeydown = (e) => e.key === "Enter" && addChip("processes", "#cfg-process-input");
 
@@ -589,6 +668,49 @@ async function runAction(id) {
     if (id === "clear-standby" || id === "quick-clean") api(["status"]).then((s) => { S.info = s.info; renderSpecs(); }).catch(() => {});
   } catch (e) { fail(e); }
 }
+
+// Registry
+async function scanRegistry() {
+  try {
+    const r = await api(["registry", "scan"], { busy: "Registry wird geprüft …" });
+    const box = $("#registry-result");
+    if (!r.items.length) { box.innerHTML = `<div class="card"><p class="good">✔ Keine kaputten Registry-Einträge gefunden.</p></div>`; return loadRegistryDeleted(); }
+    const groups = Object.keys(r.categories).filter((c) => r.items.some((i) => i.category === c));
+    box.innerHTML = `<div class="card list">${groups.map((g) => `<div class="list-item muted small"><strong>${esc(r.categories[g])}</strong></div>` + r.items.filter((i) => i.category === g).map((i) => `
+      <label class="list-item check-row"><div><strong>${esc(i.name)}</strong>${i.admin ? ` <span class="badge">Admin</span>` : ""}
+        <div class="cmd">${esc(i.detail)}${i.path ? ` · <code>${esc(i.path)}</code>` : ""}</div></div>
+        <input type="checkbox" data-reg="${esc(i.id)}" checked></label>`).join("")).join("")}</div>
+      <div class="row end-row"><button class="btn danger small" id="registry-clean">Ausgewählte bereinigen (mit Sicherung)</button></div>`;
+    $("#registry-clean").onclick = async () => {
+      const ids = $$("[data-reg]").filter((c) => c.checked).map((c) => c.dataset.reg);
+      if (!ids.length) return;
+      try {
+        const res = await api(["registry", "clean", ...ids], { busy: "Einträge werden gesichert und entfernt …" });
+        const ok = res.filter((x) => x.ok).length;
+        toast(`${ok} Registry-Einträge bereinigt – Sicherung unten wiederherstellbar.`);
+        res.filter((x) => !x.ok).forEach((x) => toast(`${x.name}: ${x.error}`, "error", 8000));
+        scanRegistry();
+      } catch (e) { fail(e); }
+    };
+    loadRegistryDeleted();
+  } catch (e) { fail(e); }
+}
+async function loadRegistryDeleted() {
+  try {
+    const d = await api(["registry", "deleted"]);
+    $("#registry-deleted").innerHTML = d.length ? `<h2>Gesicherte Registry-Einträge</h2><div class="card list">${d.map((e) => `
+      <div class="list-item"><div><strong>${esc(e.name)}</strong><div class="cmd" title="${esc(e.key)}">Bereinigt am ${new Date(e.deletedAt).toLocaleString()} · ${esc(e.key)}</div></div>
+      <button class="btn small" data-reg-restore="${esc(e.backupId)}">↺ Wiederherstellen</button></div>`).join("")}</div>` : "";
+    $$("[data-reg-restore]").forEach((b) => (b.onclick = async () => {
+      try {
+        const r = await api(["registry", "restore", b.dataset.regRestore], { busy: "Wird wiederhergestellt …" });
+        toast(`Wiederhergestellt: ${r.name}${r.service ? " (Dienst nach Neustart aktiv)" : ""}`);
+        loadRegistryDeleted();
+      } catch (e) { fail(e); }
+    }));
+  } catch (e) { fail(e); }
+}
+$("#registry-scan").onclick = scanRegistry;
 
 const SCHEDULE_LABEL = { off: "Aus", daily: "täglich um 12:00", weekly: "sonntags um 12:00" };
 async function loadSchedule() {
@@ -898,7 +1020,7 @@ const HIST = {
   apply: "✔ Angewendet", revert: "↺ Zurückgesetzt", "boost-start": "🚀 Boost gestartet", "boost-stop": "⏹ Boost beendet", "game-add": "＋ Spiel hinzugefügt", "game-remove": "✕ Spiel entfernt",
   "startup-delete": "🗑 Autostart gelöscht", "startup-restore": "↺ Autostart wiederhergestellt", "ctx-enable": "📋 Kontextmenü eingeblendet", "ctx-disable": "📋 Kontextmenü ausgeblendet",
   "app-uninstall": "🗑 Deinstallation gestartet", "appx-remove": "🗑 App entfernt", "files-delete": "🗑 In Papierkorb verschoben", "take-ownership": "🔑 Besitz übernommen",
-  "dns-set": "🧭 DNS umgestellt", update: "⬆️ Aktualisiert", schedule: "🗓️ Automatische Wartung", autoboost: "⚡ Auto-Boost", "profile-import": "⤒ Einstellungen importiert",
+  "dns-set": "🧭 DNS umgestellt", tray: "🖥️ Tray-Symbol", "registry-clean": "🧩 Registry bereinigt", "registry-restore": "↺ Registry wiederhergestellt", update: "⬆️ Aktualisiert", schedule: "🗓️ Automatische Wartung", autoboost: "⚡ Auto-Boost", "profile-import": "⤒ Einstellungen importiert",
 };
 async function loadHistory() {
   try {
@@ -906,7 +1028,7 @@ async function loadHistory() {
     const title = (id) => S.tweaks.find((t) => t.id === id)?.title || id;
     const revertable = (e) => e.action === "apply" && (e.tweaks || []).filter((id) => S.tweaks.find((t) => t.id === id)?.hasBackup);
     $("#history-list").innerHTML = h.length ? h.map((e, i) => {
-      const detail = e.tweaks ? e.tweaks.map(title).join(", ") : e.paths ? e.paths.join(", ") : e.game ? e.game : e.name ? e.name : e.minutes != null ? `${e.minutes} min` : "";
+      const detail = e.tweaks ? e.tweaks.map(title).join(", ") : e.paths ? e.paths.join(", ") : e.game ? e.game + (e.fps ? ` · ${e.fps}` : "") : e.name ? e.name : e.minutes != null ? `${e.minutes} min` : "";
       const rev = revertable(e);
       return `<div class="list-item"><div><strong>${HIST[e.action] || esc(e.action)}</strong>${e.auto ? ` <span class="badge">Auto-Boost</span>` : ""}
         <div class="cmd" title="${esc(detail)}">${esc(detail)}</div></div>
@@ -920,6 +1042,15 @@ async function loadHistory() {
     }));
   } catch (e) { fail(e); }
 }
+
+// ───────────── Language ─────────────
+$("#lang-toggle").textContent = window.GB_LANG === "en" ? "🌐 Deutsch" : "🌐 English";
+$("#lang-toggle").onclick = async () => {
+  try {
+    await api(["config", "set", "ui.lang", window.GB_LANG === "en" ? "de" : "en"]);
+    location.reload();
+  } catch (e) { fail(e); }
+};
 
 // ───────────── Updates ─────────────
 async function checkForUpdate() {
@@ -940,6 +1071,7 @@ async function checkForUpdate() {
         const r = await api(["update", "install"], { busy: `GameBoost ${u.latest} wird heruntergeladen und installiert …` });
         if (!r.updated) return toast("GameBoost ist bereits aktuell.", "info");
         showBusy("GameBoost wird neu gestartet …");
+        S.reconnecting = true;
         await post("/api/restart").catch(() => {});
         const start = Date.now();
         while (Date.now() - start < 60000) {
@@ -959,6 +1091,7 @@ async function checkForUpdate() {
 // ───────────── Admin relaunch & heartbeat ─────────────
 $("#relaunch-admin").onclick = async () => {
   showBusy("Warte auf Bestätigung (UAC) …");
+  S.reconnecting = true;
   await post("/api/relaunch-admin").catch(() => {});
   // The server restarts elevated on the same port; reload once it is back with a new token.
   const start = Date.now();
@@ -971,6 +1104,7 @@ $("#relaunch-admin").onclick = async () => {
     await new Promise((r) => setTimeout(r, 1000));
   }
   hideBusy();
+  S.reconnecting = false;
   toast("Neustart als Administrator abgebrochen.", "error");
 };
 
@@ -978,7 +1112,7 @@ setInterval(async () => {
   try {
     await post("/api/ping");
     const b = await api(["boost", "status"]);
-    if (!!b.session !== !!S.session) { S.session = b.session; renderBoostState(); }
+    if (!!b.session !== !!S.session) { S.session = b.session; renderBoostState(); renderSessions(); }
   } catch {}
 }, 10000);
 post("/api/ping").catch(() => {});

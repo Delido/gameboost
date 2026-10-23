@@ -23,6 +23,13 @@ foreach ($tool in 'powercfg', 'fsutil', 'ipconfig', 'netsh', 'net') {
   Set-Alias -Name $tool -Value (Join-Path $env:SystemRoot "System32\$tool.exe") -Scope Script
 }
 
+# Runs a native program and returns its exit code. Output (incl. stderr) is discarded – with
+# $ErrorActionPreference = 'Stop', PowerShell 5.1 would otherwise treat any stderr line as an error.
+function GB-Run([string]$exe, [string[]]$arguments) {
+  $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { & $exe @arguments 2>&1 | Out-Null; return $LASTEXITCODE } finally { $ErrorActionPreference = $old }
+}
+
 function GB-Hive([string]$h) {
   switch ($h) {
     'HKCU' { return [Microsoft.Win32.Registry]::CurrentUser }

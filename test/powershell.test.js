@@ -10,7 +10,7 @@ import { PS_PRELUDE } from "../src/ps.js";
 import { TWEAKS } from "../src/catalog.js";
 import { ACTIONS } from "../src/actions.js";
 
-const MODULES = ["actions", "apps", "bench", "boost", "catalog", "checks", "contextmenu", "engine", "files", "games", "install", "network", "schedule", "startup", "system"];
+const MODULES = ["actions", "apps", "bench", "boost", "catalog", "checks", "contextmenu", "engine", "files", "games", "install", "network", "registry", "schedule", "session", "startup", "system", "tray"];
 
 async function collectScripts() {
   const scripts = { prelude: PS_PRELUDE };

@@ -13,12 +13,13 @@ import { isAdmin } from "./system.js";
 import { DATA_DIR } from "./state.js";
 import { psq } from "./ps.js";
 import { currentVersion } from "./update.js";
+import { uiLang, localize } from "./i18n.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const CLI = fileURLToPath(new URL("../bin/gameboost.js", import.meta.url));
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".ico": "image/x-icon", ".svg": "image/svg+xml" };
 // Long-running background commands that must not be started from the UI.
-const BLOCKED = new Set(["watch", "autoboost run", "cleanup"]);
+const BLOCKED = new Set(["watch", "agent", "autoboost run", "tray run", "cleanup"]);
 
 function browserCandidates() {
   const pf = process.env.ProgramFiles || "C:\\Program Files";
@@ -80,7 +81,7 @@ export async function startServer({ port = 47821, open = true } = {}) {
       if (!/^[\w.-]+$/.test(file)) return send(404, "Not found", "text/plain");
       try {
         let body = await readFile(join(UI_DIR, file));
-        if (file === "index.html") body = body.toString("utf8").replace("__GB_TOKEN__", token).replace("__GB_ADMIN__", String(admin));
+        if (file === "index.html") body = body.toString("utf8").replace("__GB_TOKEN__", token).replace("__GB_ADMIN__", String(admin)).replace("__GB_LANG__", uiLang());
         const ext = file.slice(file.lastIndexOf("."));
         return send(200, body, MIME[ext] || "application/octet-stream");
       } catch {
@@ -120,7 +121,7 @@ export async function startServer({ port = 47821, open = true } = {}) {
       const [name, sub] = parseArgs(argv).pos;
       if (!name || BLOCKED.has(name) || BLOCKED.has(`${name} ${sub}`) || name === "ui") return send(400, { ok: false, error: "Befehl nicht erlaubt" });
       try {
-        return send(200, { ok: true, data: await execute(argv) });
+        return send(200, { ok: true, data: localize(name, await execute(argv)) });
       } catch (e) {
         return send(200, { ok: false, error: e.message });
       }

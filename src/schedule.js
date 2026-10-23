@@ -48,7 +48,7 @@ switch ($GB_IN.mode) {
 }
 `;
 
-export const TASKS = { maintenance: "Wartung", autoboost: "Auto-Boost" };
+export const TASKS = { maintenance: "Wartung", autoboost: "Auto-Boost", tray: "Tray" };
 
 export async function getTasks() {
   return (await runPS(SCHEDULE_PS, { mode: "get", taskPath: TASK_PATH, names: Object.values(TASKS) })) || {};

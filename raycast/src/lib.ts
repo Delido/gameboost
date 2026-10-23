@@ -122,7 +122,16 @@ export function gb<T>(args: string[], timeoutMs = 10 * 60 * 1000): Promise<T> {
 }
 
 /** Start the desktop UI (detached). */
+/**
+ * Open the desktop UI. Prefers the Start menu shortcut: it runs GameBoost as administrator and
+ * independently of Raycast (a child process would end when Raycast restarts its backend).
+ */
 export function openApp() {
+  const shortcut = join(process.env.APPDATA || join(home(), "AppData", "Roaming"), "Microsoft", "Windows", "Start Menu", "Programs", "GameBoost.lnk");
+  if (existsSync(shortcut)) {
+    spawn(join(process.env.SystemRoot || "C:\\Windows", "explorer.exe"), [shortcut], { detached: true, stdio: "ignore" }).unref();
+    return;
+  }
   const { node, cli } = paths();
   spawn(node, [cli, "ui"], { detached: true, stdio: "ignore", windowsHide: true, env: childEnv() }).unref();
 }

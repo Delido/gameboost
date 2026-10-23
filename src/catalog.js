@@ -46,9 +46,9 @@ function GB-EnsurePlan {
   $guid = '${GAMEBOOST_PLAN}'
   $list = powercfg /list
   if (-not ("$list" -match $guid)) {
-    powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 $guid 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0 -or -not ("$(powercfg /list)" -match $guid)) {
-      powercfg -duplicatescheme 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c $guid 2>&1 | Out-Null
+    $code = GB-Run "$env:SystemRoot\System32\powercfg.exe" @('-duplicatescheme', 'e9a42b02-d5df-448d-aa00-03f14749eb61', $guid)
+    if ($code -ne 0 -or -not ("$(powercfg /list)" -match $guid)) {
+      GB-Run "$env:SystemRoot\System32\powercfg.exe" @('-duplicatescheme', '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c', $guid) | Out-Null
     }
     if (-not ("$(powercfg /list)" -match $guid)) { throw 'Energieplan konnte nicht erstellt werden (Modern Standby?)' }
     powercfg -changename $guid 'GameBoost Ultimate' 'Höchstleistung für Spiele (erstellt von GameBoost)' | Out-Null
@@ -237,7 +237,7 @@ export const TWEAKS = [
           $target = if ($backup -and $backup.previous) { $backup.previous } else { '381b4222-f694-41f0-9685-ff5bb260df2e' }
           powercfg /setactive $target | Out-Null
           if ($LASTEXITCODE -ne 0) { powercfg /setactive 381b4222-f694-41f0-9685-ff5bb260df2e | Out-Null }
-          powercfg /delete ${GAMEBOOST_PLAN} 2>&1 | Out-Null`,
+          GB-Run "$env:SystemRoot\System32\powercfg.exe" @('/delete', '${GAMEBOOST_PLAN}') | Out-Null`,
       ),
     ],
   },

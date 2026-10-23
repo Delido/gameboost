@@ -189,7 +189,7 @@ export const ACTIONS = [
       & takeown.exe /F $dir /R /A /D Y | Out-Null
       & icacls.exe $dir /grant '*S-1-5-32-544:F' /T /C /Q | Out-Null
       Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
-      if (Test-Path -LiteralPath $dir) { & cmd.exe /c rd /s /q "$dir" 2>&1 | Out-Null }
+      if (Test-Path -LiteralPath $dir) { GB-Run 'cmd.exe' @('/c', 'rd', '/s', '/q', $dir) | Out-Null }
       $left = if (Test-Path -LiteralPath $dir) { GB-DirSize @($dir) } else { 0 }
       return "$(GB-MB ($before - $left)) freigegeben."`,
   },
@@ -201,8 +201,8 @@ export const ACTIONS = [
     icon: "🧩", admin: true, timeout: 60,
     script: String.raw`
       $free = (Get-PSDrive ($env:SystemDrive.TrimEnd(':'))).Free
-      $out = & dism.exe /Online /Cleanup-Image /StartComponentCleanup /NoRestart 2>&1
-      if ($LASTEXITCODE -ne 0) { throw "DISM-Fehler $LASTEXITCODE" }
+      $code = GB-Run 'dism.exe' @('/Online', '/Cleanup-Image', '/StartComponentCleanup', '/NoRestart')
+      if ($code -ne 0) { throw "DISM-Fehler $code" }
       $gain = (Get-PSDrive ($env:SystemDrive.TrimEnd(':'))).Free - $free
       return ('Komponentenspeicher bereinigt ({0:N0} MB freigegeben).' -f ([math]::Max(0, $gain) / 1MB))`,
   },
@@ -267,8 +267,8 @@ export const ACTIONS = [
     description: "Repariert den Komponentenspeicher über Windows Update (DISM /RestoreHealth) – Grundlage dafür, dass SFC reparieren kann. Dauert 10–30 Minuten.",
     icon: "🛠️", admin: true, timeout: 60,
     script: String.raw`
-      $out = & dism.exe /Online /Cleanup-Image /RestoreHealth /NoRestart 2>&1
-      if ($LASTEXITCODE -ne 0) { throw "DISM-Fehler $LASTEXITCODE – Internetverbindung prüfen." }
+      $code = GB-Run 'dism.exe' @('/Online', '/Cleanup-Image', '/RestoreHealth', '/NoRestart')
+      if ($code -ne 0) { throw "DISM-Fehler $code – Internetverbindung prüfen." }
       return 'Windows-Abbild geprüft und repariert. Danach „Systemdateien prüfen (SFC)“ ausführen.'`,
   },
   {

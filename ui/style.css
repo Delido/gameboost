@@ -262,3 +262,13 @@ code { font: 12px/1.4 "Cascadia Mono", Consolas, monospace; background: var(--ca
 
 .banner.update { background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.4); }
 .notes { white-space: normal; color: var(--muted); max-height: 50vh; overflow-y: auto; font-size: 13px; }
+.busy.offline { z-index: 40; text-align: center; padding: 24px; background: rgba(5,6,10,.85); }
+.busy.offline span { max-width: 460px; }
+label.list-item.check-row { cursor: pointer; }
+label.list-item.check-row input { width: 18px; height: 18px; flex-shrink: 0; }
+.fps-stats { display: grid; grid-template-columns: repeat(4, 76px); gap: 8px; flex-shrink: 0; }
+.fps-stats > div { display: flex; flex-direction: column; align-items: flex-end; font-size: 12px; }
+.fps-stats span { color: var(--muted); font-size: 11px; }
+.fps-stats strong { font-size: 16px; }
+#lang-toggle { align-self: flex-start; margin-top: 2px; }
+.grid.two.spaced { margin-top: 14px; }

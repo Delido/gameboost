@@ -1,6 +1,7 @@
 // System information.
 import { execFile } from "node:child_process";
 import { runPS } from "./ps.js";
+import { CPU_PS } from "./session.js";
 
 let adminCache = null;
 /** True if the current process runs elevated. */
@@ -11,10 +12,11 @@ export function isAdmin() {
   });
 }
 
-export const SYSINFO_PS = String.raw`
+export const SYSINFO_PS = CPU_PS + String.raw`
 $os = Get-CimInstance Win32_OperatingSystem
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
 $cs = Get-CimInstance Win32_ComputerSystem
+$cpuMasks = [GBCpu]::Masks()
 $gpus = @()
 $cls = 'SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
 $vram = @{}
@@ -46,7 +48,7 @@ $uptime = (Get-Date) - $os.LastBootUpTime
 GB-Out @{
   computer = $env:COMPUTERNAME
   os = @{ name = $os.Caption; version = $os.Version; build = [int]$os.BuildNumber; uptimeHours = [math]::Round($uptime.TotalHours, 1) }
-  cpu = @{ name = $cpu.Name.Trim(); cores = $cpu.NumberOfCores; threads = $cpu.NumberOfLogicalProcessors; mhz = $cpu.MaxClockSpeed; load = $cpu.LoadPercentage }
+  cpu = @{ name = $cpu.Name.Trim(); cores = $cpu.NumberOfCores; threads = $cpu.NumberOfLogicalProcessors; mhz = $cpu.MaxClockSpeed; load = $cpu.LoadPercentage; pThreads = (GB-BitCount $cpuMasks[0]); eThreads = (GB-BitCount $cpuMasks[1]) }
   ram = @{ totalGB = [math]::Round($cs.TotalPhysicalMemory / 1GB, 1); freeGB = [math]::Round($os.FreePhysicalMemory / 1MB, 1) }
   gpus = $gpus
   disks = $disks
